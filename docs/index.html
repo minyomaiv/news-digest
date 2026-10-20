@@ -164,9 +164,16 @@ function formatDay(iso) {
   return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
 }
 
+// новость «новая», если скрипт добавил её после прошлого захода
+// (у старых новостей без added_at берём время публикации)
+function isNewItem(item) {
+  var added = item.added_at || item.date;
+  return new Date(added).getTime() > lastVisit;
+}
+
 function makeCard(item, showTopic) {
   var card = el("div", "card");
-  var isNew = new Date(item.date).getTime() > lastVisit;
+  var isNew = isNewItem(item);
 
   var title = el("p", "title");
   if (isNew) title.appendChild(el("span", "dot", "●"));
@@ -215,7 +222,7 @@ function renderNews() {
   var shown = [];
   for (var i = 0; i < allNews.length; i++) {
     var item = allNews[i];
-    if (mode === "all" || new Date(item.date).getTime() > lastVisit) shown.push(item);
+    if (mode === "all" || isNewItem(item)) shown.push(item);
   }
   shown.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
@@ -378,7 +385,7 @@ Promise.all([
 
   var hasNew = false;
   for (var j = 0; j < allNews.length; j++) {
-    if (new Date(allNews[j].date).getTime() > lastVisit) hasNew = true;
+    if (isNewItem(allNews[j])) hasNew = true;
   }
   setMode(hasNew ? "new" : "all");
   renderCorp();

@@ -3,7 +3,7 @@
 # 1) забирает новые сообщения из Telegram-каналов
 # 2) отправляет их пачками в Gemini: тема, подтема, сводки, поиск дублей
 # 3) сохраняет новости в docs/news.json (их читает веб-приложение)
-# 4) отправляет дайджест-уведомление в ntfy
+# 4) готовит уведомления (их отправит notify.py после обновления сайта)
 # ============================================================
 
 import os
@@ -12,7 +12,6 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 
-import requests
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 from google import genai
@@ -27,6 +26,11 @@ REPORTS_DIR = "docs/reports"             # ежемесячные отчёты
 REPORTS_INDEX = "docs/reports/index.json"
 
 MSK = timezone(timedelta(hours=3))       # московское время
+
+# Уведомления не отправляются сразу: они копятся здесь и записываются в файл.
+# Отправит их notify.py — в самом конце, когда сайт уже обновлён.
+PENDING = []
+PENDING_FILE = "pending_notifications.json"
 
 
 # ---------- работа с файлами ----------
@@ -73,7 +77,7 @@ def fetch_new_messages(tg, state):
             if last_id == 0 and msg.date < cutoff:
                 break
             text = msg.message
-            if not text or len(text.strip()) < 5:
+            if not text or len(text.strip()) < 20:
                 continue  # пропускаем фото без подписи и совсем короткие посты
             result.append({
                 "id": username + "_" + str(msg.id),
@@ -275,11 +279,8 @@ def send_notification(added):
     if url:
         body["click"] = url
 
-    try:
-        requests.post("https://ntfy.sh/", json=body, timeout=30)
-        print("Уведомление отправлено")
-    except Exception as e:
-        print("Не удалось отправить уведомление:", e)
+    PENDING.append(body)
+    print("Уведомление подготовлено")
 
 
 # ---------- 5. Архив «Финансы компаний» и ежемесячный отчёт ----------
@@ -372,11 +373,8 @@ def maybe_send_report(corp, state):
         body["click"] = url + "#corp"
         body["attach"] = url + "reports/" + name + ".csv"
         body["filename"] = "finansy_kompaniy_" + name + ".csv"
-    try:
-        requests.post("https://ntfy.sh/", json=body, timeout=30)
-        print("Уведомление с отчётом отправлено")
-    except Exception as e:
-        print("Не удалось отправить отчёт:", e)
+    PENDING.append(body)
+    print("Уведомление с отчётом подготовлено")
 
 
 # ---------- главная часть ----------
@@ -438,6 +436,9 @@ def main():
     maybe_send_report(corp, state)
 
     save_json(STATE_FILE, state)
+
+    with open(PENDING_FILE, "w", encoding="utf-8") as f:
+        json.dump(PENDING, f, ensure_ascii=False)
 
 
 if __name__ == "__main__":

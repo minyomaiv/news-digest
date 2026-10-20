@@ -118,6 +118,7 @@
   <section id="newsView">
     <div class="filters">
       <button id="btnNew" class="on">Новые</button>
+      <button id="btnToday">Сегодня</button>
       <button id="btnAll">Все за неделю</button>
     </div>
     <main id="list"></main>
@@ -171,6 +172,13 @@ function isNewItem(item) {
   return new Date(added).getTime() > lastVisit;
 }
 
+// новость опубликована сегодня (по времени вашего телефона)
+function isTodayItem(item) {
+  var d = new Date(item.date);
+  var now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
 function makeCard(item, showTopic) {
   var card = el("div", "card");
   var isNew = isNewItem(item);
@@ -222,12 +230,17 @@ function renderNews() {
   var shown = [];
   for (var i = 0; i < allNews.length; i++) {
     var item = allNews[i];
-    if (mode === "all" || isNewItem(item)) shown.push(item);
+    if (mode === "all") shown.push(item);
+    if (mode === "new" && isNewItem(item)) shown.push(item);
+    if (mode === "today" && isTodayItem(item)) shown.push(item);
   }
   shown.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
   if (shown.length === 0) {
-    list.appendChild(el("p", "empty", mode === "new" ? "Новых новостей нет. Загляните во «Все за неделю»." : "Пока пусто."));
+    var emptyText = "Пока пусто.";
+    if (mode === "new") emptyText = "Новых новостей нет. Загляните в «Сегодня» или «Все за неделю».";
+    if (mode === "today") emptyText = "Сегодня новостей пока нет.";
+    list.appendChild(el("p", "empty", emptyText));
     return;
   }
 
@@ -261,6 +274,7 @@ function renderNews() {
 function setMode(newMode) {
   mode = newMode;
   document.getElementById("btnNew").className = mode === "new" ? "on" : "";
+  document.getElementById("btnToday").className = mode === "today" ? "on" : "";
   document.getElementById("btnAll").className = mode === "all" ? "on" : "";
   renderNews();
 }
@@ -350,6 +364,7 @@ function setTab(name) {
 document.getElementById("tabNews").onclick = function () { setTab("news"); history.replaceState(null, "", "#"); };
 document.getElementById("tabCorp").onclick = function () { setTab("corp"); history.replaceState(null, "", "#corp"); };
 document.getElementById("btnNew").onclick = function () { setMode("new"); };
+document.getElementById("btnToday").onclick = function () { setMode("today"); };
 document.getElementById("btnAll").onclick = function () { setMode("all"); };
 if (location.hash === "#corp") setTab("corp");
 
@@ -387,7 +402,14 @@ Promise.all([
   for (var j = 0; j < allNews.length; j++) {
     if (isNewItem(allNews[j])) hasNew = true;
   }
-  setMode(hasNew ? "new" : "all");
+  // нет новых — показываем «Сегодня», а если и сегодня пусто — всю неделю
+  var hasToday = false;
+  for (var t = 0; t < allNews.length; t++) {
+    if (isTodayItem(allNews[t])) hasToday = true;
+  }
+  if (hasNew) setMode("new");
+  else if (hasToday) setMode("today");
+  else setMode("all");
   renderCorp();
 
   try { localStorage.setItem("lastVisit", String(Date.now())); } catch (e) {}

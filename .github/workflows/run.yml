@@ -8,7 +8,9 @@ on:
   workflow_dispatch:   # кнопка «Run workflow» для ручного запуска
 
 permissions:
-  contents: write      # чтобы скрипт мог сохранить новые новости в репозиторий
+  contents: write      # сохранять новые новости в репозиторий
+  pages: write         # публиковать сайт
+  id-token: write      # нужно для публикации сайта
 
 concurrency:
   group: news-digest   # два запуска одновременно не пойдут
@@ -16,10 +18,12 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -35,10 +39,22 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python digest.py
 
-      - name: Сохранение результатов
+      - name: Сохранение результатов в репозиторий
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add docs data
           git diff --cached --quiet || git commit -m "update news"
+          git pull --rebase    # подтянуть ваши правки, если вы меняли файлы во время запуска
           git push
+
+      - name: Подготовка сайта
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+
+      - name: Публикация сайта
+        uses: actions/deploy-pages@v4
+
+      - name: Отправка уведомлений
+        run: python notify.py

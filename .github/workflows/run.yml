@@ -1,0 +1,44 @@
+# Расписание запуска. Время в cron указано в UTC (Москва = UTC+3).
+# Сейчас: 8:47, 12:47, 16:47, 20:47 по Москве.
+name: news-digest
+
+on:
+  schedule:
+    - cron: "47 5,9,13,17 * * *"
+  workflow_dispatch:   # кнопка «Run workflow» для ручного запуска
+
+permissions:
+  contents: write      # чтобы скрипт мог сохранить новые новости в репозиторий
+
+concurrency:
+  group: news-digest   # два запуска одновременно не пойдут
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установка библиотек
+        run: pip install -r requirements.txt
+
+      - name: Сбор и обработка новостей
+        env:
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python digest.py
+
+      - name: Сохранение результатов
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add docs data
+          git diff --cached --quiet || git commit -m "update news"
+          git push

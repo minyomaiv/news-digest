@@ -67,7 +67,7 @@ def fetch_new_messages(tg, state):
             if last_id == 0 and msg.date < cutoff:
                 break
             text = msg.message
-            if not text or len(text.strip()) < 20:
+            if not text or len(text.strip()) < 2:
                 continue  # пропускаем фото без подписи и совсем короткие посты
             result.append({
                 "id": username + "_" + str(msg.id),

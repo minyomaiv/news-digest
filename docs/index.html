@@ -18,6 +18,7 @@
     --accent: #1f5fbf;
     --new: #d9480f;
     --chip: #ecebe6;
+    --corp: #1e7a4c;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -29,6 +30,7 @@
       --accent: #7aa7ff;
       --new: #ff8a4c;
       --chip: #2a2c31;
+      --corp: #5fcf94;
     }
   }
   * { box-sizing: border-box; }
@@ -41,7 +43,15 @@
   .wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 48px; }
   header h1 { font-size: 24px; margin: 8px 0 2px; }
   .updated { color: var(--muted); font-size: 13px; }
-  .filters { display: flex; gap: 8px; margin: 14px 0 6px; }
+
+  .tabs { display: flex; gap: 4px; margin: 14px 0 4px; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 600;
+    padding: 8px 10px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+  .filters { display: flex; gap: 8px; margin: 12px 0 6px; }
   .filters button {
     border: 0; border-radius: 999px; padding: 7px 14px;
     background: var(--chip); color: var(--text); font-size: 14px; cursor: pointer;
@@ -59,6 +69,8 @@
   .count { color: var(--muted); font-size: 14px; font-weight: 400; }
   h3.sub { font-size: 14px; text-transform: uppercase; letter-spacing: .03em;
     color: var(--muted); margin: 16px 0 8px; font-weight: 600; }
+  h2.block { font-size: 18px; margin: 20px 0 4px; }
+  .note { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
 
   .card {
     background: var(--card); border: 1px solid var(--line);
@@ -68,9 +80,10 @@
   .card .title .dot { color: var(--new); margin-right: 4px; }
   .meta { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
   .tag { background: var(--chip); border-radius: 6px; padding: 1px 6px; margin-right: 4px; }
+  .tag.corp { color: var(--corp); }
   .summary { margin: 0 0 8px; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
-  .actions a, .actions button {
+  .actions a, .actions button, .report button, .report a {
     color: var(--accent); background: none; border: 0; padding: 0;
     font: inherit; cursor: pointer; text-decoration: none;
   }
@@ -80,6 +93,14 @@
   }
   .full.open { display: block; }
   .empty { color: var(--muted); margin-top: 32px; text-align: center; }
+
+  .report {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .report .row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 14px; }
+  .report .name { font-weight: 600; font-size: 16px; margin-right: auto; }
+  .report .items { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -88,16 +109,34 @@
     <h1>Мои новости</h1>
     <div class="updated" id="updated">Загрузка…</div>
   </header>
-  <div class="filters">
-    <button id="btnNew" class="on">Новые</button>
-    <button id="btnAll">Все за неделю</button>
-  </div>
-  <main id="list"></main>
+
+  <nav class="tabs">
+    <button id="tabNews" class="on">Новости</button>
+    <button id="tabCorp">Финансы компаний</button>
+  </nav>
+
+  <section id="newsView">
+    <div class="filters">
+      <button id="btnNew" class="on">Новые</button>
+      <button id="btnAll">Все за неделю</button>
+    </div>
+    <main id="list"></main>
+  </section>
+
+  <section id="corpView" hidden>
+    <h2 class="block">Текущий период</h2>
+    <p class="note" id="corpNote"></p>
+    <div id="corpList"></div>
+    <h2 class="block">Отчёты</h2>
+    <div id="reportList"></div>
+  </section>
 </div>
 
 <script>
 var allNews = [];
 var topics = {};
+var corp = [];
+var reportsIndex = { start: "", reports: [] };
 var lastVisit = 0;
 var mode = "new";
 
@@ -120,7 +159,12 @@ function formatTime(iso) {
   return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function makeCard(item) {
+function formatDay(iso) {
+  var d = new Date(iso);
+  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function makeCard(item, showTopic) {
   var card = el("div", "card");
   var isNew = new Date(item.date).getTime() > lastVisit;
 
@@ -131,7 +175,9 @@ function makeCard(item) {
 
   var meta = el("div", "meta");
   meta.appendChild(document.createTextNode(formatTime(item.date) + " · "));
+  if (showTopic) meta.appendChild(el("span", "tag", item.subtopic));
   if (item.region) meta.appendChild(el("span", "tag", item.region));
+  if (item.corp_finance && !showTopic) meta.appendChild(el("span", "tag corp", "Финансы компаний"));
   var channels = [];
   for (var i = 0; i < item.sources.length; i++) channels.push(item.sources[i].channel);
   meta.appendChild(document.createTextNode(channels.join(", ")));
@@ -160,17 +206,17 @@ function makeCard(item) {
   return card;
 }
 
-function render() {
+// ---------- вкладка «Новости» ----------
+
+function renderNews() {
   var list = document.getElementById("list");
   list.innerHTML = "";
 
-  // отбираем новости по фильтру
   var shown = [];
   for (var i = 0; i < allNews.length; i++) {
     var item = allNews[i];
     if (mode === "all" || new Date(item.date).getTime() > lastVisit) shown.push(item);
   }
-  // самые свежие сверху
   shown.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
   if (shown.length === 0) {
@@ -199,7 +245,7 @@ function render() {
       }
       if (inSub.length === 0) continue;
       if (subs[s] !== topic) section.appendChild(el("h3", "sub", subs[s]));
-      for (var n = 0; n < inSub.length; n++) section.appendChild(makeCard(inSub[n]));
+      for (var n = 0; n < inSub.length; n++) section.appendChild(makeCard(inSub[n], false));
     }
     list.appendChild(section);
   }
@@ -209,19 +255,119 @@ function setMode(newMode) {
   mode = newMode;
   document.getElementById("btnNew").className = mode === "new" ? "on" : "";
   document.getElementById("btnAll").className = mode === "all" ? "on" : "";
-  render();
+  renderNews();
 }
 
+// ---------- вкладка «Финансы компаний» ----------
+
+function renderCorp() {
+  // начало текущего периода: конец последнего отчёта или начало сбора
+  var periodStart = reportsIndex.start ? reportsIndex.start + "T00:00:00+03:00" : "";
+  var reports = reportsIndex.reports;
+  if (reports.length > 0) periodStart = reports[reports.length - 1].to;
+
+  var current = [];
+  for (var i = 0; i < corp.length; i++) {
+    if (!periodStart || corp[i].date >= new Date(periodStart).toISOString()) current.push(corp[i]);
+  }
+  current.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+
+  document.getElementById("corpNote").textContent =
+    (periodStart ? "С " + formatDay(periodStart) + " · " : "") + "собрано новостей: " + current.length;
+
+  var list = document.getElementById("corpList");
+  list.innerHTML = "";
+  if (current.length === 0) list.appendChild(el("p", "note", "Пока ничего не собрано."));
+  for (var j = 0; j < current.length; j++) list.appendChild(makeCard(current[j], true));
+
+  var reportList = document.getElementById("reportList");
+  reportList.innerHTML = "";
+  if (reports.length === 0) {
+    reportList.appendChild(el("p", "note", "Первый отчёт придёт 28 ноября."));
+    return;
+  }
+  for (var r = reports.length - 1; r >= 0; r--) reportList.appendChild(makeReport(reports[r]));
+}
+
+function makeReport(report) {
+  var box = el("div", "report");
+  var row = el("div", "row");
+  row.appendChild(el("span", "name", formatDay(report.from) + " – " + formatDay(report.to)));
+  row.appendChild(el("span", "count", report.count + " новостей"));
+
+  var items = el("div", "items");
+  var loaded = false;
+  var show = el("button", "", "Показать");
+  show.onclick = function () {
+    if (items.hidden === false && loaded) {
+      items.hidden = true;
+      show.textContent = "Показать";
+      return;
+    }
+    items.hidden = false;
+    show.textContent = "Скрыть";
+    if (loaded) return;
+    items.textContent = "Загрузка…";
+    fetch("reports/" + report.name + ".json?t=" + Date.now())
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        loaded = true;
+        items.textContent = "";
+        data.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+        for (var i = 0; i < data.length; i++) items.appendChild(makeCard(data[i], true));
+      })
+      .catch(function () { items.textContent = "Не удалось загрузить отчёт."; });
+  };
+  row.appendChild(show);
+
+  var csvLink = el("a", "", "Скачать CSV");
+  csvLink.href = "reports/" + report.name + ".csv";
+  csvLink.setAttribute("download", "finansy_kompaniy_" + report.name + ".csv");
+  row.appendChild(csvLink);
+
+  box.appendChild(row);
+  items.hidden = true;
+  box.appendChild(items);
+  return box;
+}
+
+// ---------- переключение вкладок ----------
+
+function setTab(name) {
+  document.getElementById("tabNews").className = name === "news" ? "on" : "";
+  document.getElementById("tabCorp").className = name === "corp" ? "on" : "";
+  document.getElementById("newsView").hidden = name !== "news";
+  document.getElementById("corpView").hidden = name !== "corp";
+}
+
+document.getElementById("tabNews").onclick = function () { setTab("news"); history.replaceState(null, "", "#"); };
+document.getElementById("tabCorp").onclick = function () { setTab("corp"); history.replaceState(null, "", "#corp"); };
 document.getElementById("btnNew").onclick = function () { setMode("new"); };
 document.getElementById("btnAll").onclick = function () { setMode("all"); };
+if (location.hash === "#corp") setTab("corp");
 
-var stamp = "?t=" + Date.now(); // чтобы браузер не показывал старую версию
+// ---------- загрузка данных ----------
+
+function getJson(name, fallback) {
+  return fetch(name + "?t=" + Date.now())   // ?t= чтобы браузер не показывал старую версию
+    .then(function (r) { return r.ok ? r.json() : fallback; })
+    .catch(function () { return fallback; });
+}
+
 Promise.all([
-  fetch("news.json" + stamp).then(function (r) { return r.json(); }),
-  fetch("topics.json" + stamp).then(function (r) { return r.json(); })
+  getJson("news.json", null),
+  getJson("topics.json", {}),
+  getJson("corp_finance.json", []),
+  getJson("reports/index.json", { start: "", reports: [] })
 ]).then(function (results) {
+  if (results[0] === null) {
+    document.getElementById("updated").textContent = "Данных пока нет — дождитесь первого запуска.";
+    return;
+  }
   allNews = results[0];
   topics = results[1];
+  corp = results[2];
+  reportsIndex = results[3];
 
   var newest = "";
   for (var i = 0; i < allNews.length; i++) {
@@ -230,16 +376,14 @@ Promise.all([
   document.getElementById("updated").textContent =
     newest ? "Последняя новость: " + formatTime(newest) : "Новостей пока нет";
 
-  // если новых нет — сразу показываем всё
   var hasNew = false;
   for (var j = 0; j < allNews.length; j++) {
     if (new Date(allNews[j].date).getTime() > lastVisit) hasNew = true;
   }
   setMode(hasNew ? "new" : "all");
+  renderCorp();
 
   try { localStorage.setItem("lastVisit", String(Date.now())); } catch (e) {}
-}).catch(function () {
-  document.getElementById("updated").textContent = "Данных пока нет — дождитесь первого запуска.";
 });
 </script>
 </body>

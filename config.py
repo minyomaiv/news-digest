@@ -4,9 +4,10 @@
 
 # Telegram-каналы: username из ссылки t.me/<username>
 CHANNELS = [
-    "news_engineering",   # MASHNEWS | Новости Промышленности
     "vedomosti",          # Ведомости
-    "kommersant_nn",      # Коммерсантъ Приволжье
+    "kommersant",         # Коммерсантъ
+    "kommersant_nn",      # Коммерсантъ Приволжье    
+    "news_engineering",   # MASHNEWS | Новости Промышленности
     "anrbc",              # AUTONEWS
 ]
 

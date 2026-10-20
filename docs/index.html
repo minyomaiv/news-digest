@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16171a" media="(prefers-color-scheme: dark)">
+<title>Мои новости</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --card: #ffffff;
+    --text: #1d1d1f;
+    --muted: #6b6b70;
+    --line: #e4e2dc;
+    --accent: #1f5fbf;
+    --new: #d9480f;
+    --chip: #ecebe6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a;
+      --card: #202226;
+      --text: #ececee;
+      --muted: #9a9aa2;
+      --line: #2e3036;
+      --accent: #7aa7ff;
+      --new: #ff8a4c;
+      --chip: #2a2c31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 48px; }
+  header h1 { font-size: 24px; margin: 8px 0 2px; }
+  .updated { color: var(--muted); font-size: 13px; }
+  .filters { display: flex; gap: 8px; margin: 14px 0 6px; }
+  .filters button {
+    border: 0; border-radius: 999px; padding: 7px 14px;
+    background: var(--chip); color: var(--text); font-size: 14px; cursor: pointer;
+  }
+  .filters button.on { background: var(--accent); color: #fff; }
+
+  details.topic { margin-top: 18px; }
+  details.topic > summary {
+    list-style: none; cursor: pointer;
+    font-size: 19px; font-weight: 700; padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  details.topic > summary::-webkit-details-marker { display: none; }
+  .count { color: var(--muted); font-size: 14px; font-weight: 400; }
+  h3.sub { font-size: 14px; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--muted); margin: 16px 0 8px; font-weight: 600; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+  }
+  .card .title { font-weight: 600; margin: 0 0 4px; }
+  .card .title .dot { color: var(--new); margin-right: 4px; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+  .tag { background: var(--chip); border-radius: 6px; padding: 1px 6px; margin-right: 4px; }
+  .summary { margin: 0 0 8px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+  .actions a, .actions button {
+    color: var(--accent); background: none; border: 0; padding: 0;
+    font: inherit; cursor: pointer; text-decoration: none;
+  }
+  .full {
+    display: none; white-space: pre-wrap; margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--line); font-size: 15px;
+  }
+  .full.open { display: block; }
+  .empty { color: var(--muted); margin-top: 32px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Мои новости</h1>
+    <div class="updated" id="updated">Загрузка…</div>
+  </header>
+  <div class="filters">
+    <button id="btnNew" class="on">Новые</button>
+    <button id="btnAll">Все за неделю</button>
+  </div>
+  <main id="list"></main>
+</div>
+
+<script>
+var allNews = [];
+var topics = {};
+var lastVisit = 0;
+var mode = "new";
+
+// время последнего визита (хранится только в этом браузере)
+try {
+  lastVisit = Number(localStorage.getItem("lastVisit") || 0);
+} catch (e) {
+  lastVisit = 0;
+}
+
+function el(tag, className, text) {
+  var node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+function formatTime(iso) {
+  var d = new Date(iso);
+  return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function makeCard(item) {
+  var card = el("div", "card");
+  var isNew = new Date(item.date).getTime() > lastVisit;
+
+  var title = el("p", "title");
+  if (isNew) title.appendChild(el("span", "dot", "●"));
+  title.appendChild(document.createTextNode(item.short));
+  card.appendChild(title);
+
+  var meta = el("div", "meta");
+  meta.appendChild(document.createTextNode(formatTime(item.date) + " · "));
+  if (item.region) meta.appendChild(el("span", "tag", item.region));
+  var channels = [];
+  for (var i = 0; i < item.sources.length; i++) channels.push(item.sources[i].channel);
+  meta.appendChild(document.createTextNode(channels.join(", ")));
+  card.appendChild(meta);
+
+  if (item.summary) card.appendChild(el("p", "summary", item.summary));
+
+  var actions = el("div", "actions");
+  var full = el("div", "full", item.text);
+  var toggle = el("button", "", "Полный текст");
+  toggle.onclick = function () {
+    full.classList.toggle("open");
+    toggle.textContent = full.classList.contains("open") ? "Свернуть" : "Полный текст";
+  };
+  actions.appendChild(toggle);
+
+  for (var j = 0; j < item.sources.length; j++) {
+    var link = el("a", "", "Источник: " + item.sources[j].channel + " ↗");
+    link.href = item.sources[j].link;
+    link.target = "_blank";
+    link.rel = "noopener";
+    actions.appendChild(link);
+  }
+  card.appendChild(actions);
+  card.appendChild(full);
+  return card;
+}
+
+function render() {
+  var list = document.getElementById("list");
+  list.innerHTML = "";
+
+  // отбираем новости по фильтру
+  var shown = [];
+  for (var i = 0; i < allNews.length; i++) {
+    var item = allNews[i];
+    if (mode === "all" || new Date(item.date).getTime() > lastVisit) shown.push(item);
+  }
+  // самые свежие сверху
+  shown.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+
+  if (shown.length === 0) {
+    list.appendChild(el("p", "empty", mode === "new" ? "Новых новостей нет. Загляните во «Все за неделю»." : "Пока пусто."));
+    return;
+  }
+
+  for (var topic in topics) {
+    var inTopic = [];
+    for (var k = 0; k < shown.length; k++) {
+      if (shown[k].topic === topic) inTopic.push(shown[k]);
+    }
+    if (inTopic.length === 0) continue;
+
+    var section = el("details", "topic");
+    if (topic !== "Другое") section.open = true;
+    var head = el("summary", "", topic);
+    head.appendChild(el("span", "count", String(inTopic.length)));
+    section.appendChild(head);
+
+    var subs = topics[topic];
+    for (var s = 0; s < subs.length; s++) {
+      var inSub = [];
+      for (var m = 0; m < inTopic.length; m++) {
+        if (inTopic[m].subtopic === subs[s]) inSub.push(inTopic[m]);
+      }
+      if (inSub.length === 0) continue;
+      if (subs[s] !== topic) section.appendChild(el("h3", "sub", subs[s]));
+      for (var n = 0; n < inSub.length; n++) section.appendChild(makeCard(inSub[n]));
+    }
+    list.appendChild(section);
+  }
+}
+
+function setMode(newMode) {
+  mode = newMode;
+  document.getElementById("btnNew").className = mode === "new" ? "on" : "";
+  document.getElementById("btnAll").className = mode === "all" ? "on" : "";
+  render();
+}
+
+document.getElementById("btnNew").onclick = function () { setMode("new"); };
+document.getElementById("btnAll").onclick = function () { setMode("all"); };
+
+var stamp = "?t=" + Date.now(); // чтобы браузер не показывал старую версию
+Promise.all([
+  fetch("news.json" + stamp).then(function (r) { return r.json(); }),
+  fetch("topics.json" + stamp).then(function (r) { return r.json(); })
+]).then(function (results) {
+  allNews = results[0];
+  topics = results[1];
+
+  var newest = "";
+  for (var i = 0; i < allNews.length; i++) {
+    if (allNews[i].date > newest) newest = allNews[i].date;
+  }
+  document.getElementById("updated").textContent =
+    newest ? "Последняя новость: " + formatTime(newest) : "Новостей пока нет";
+
+  // если новых нет — сразу показываем всё
+  var hasNew = false;
+  for (var j = 0; j < allNews.length; j++) {
+    if (new Date(allNews[j].date).getTime() > lastVisit) hasNew = true;
+  }
+  setMode(hasNew ? "new" : "all");
+
+  try { localStorage.setItem("lastVisit", String(Date.now())); } catch (e) {}
+}).catch(function () {
+  document.getElementById("updated").textContent = "Данных пока нет — дождитесь первого запуска.";
+});
+</script>
+</body>
+</html>

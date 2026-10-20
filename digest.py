@@ -226,6 +226,7 @@ def process_batch(ai, batch, news, by_id, added):
         item["short"] = answer.get("short") or item["text"][:120]
         item["summary"] = answer.get("summary") or ""
         item["corp_finance"] = to_bool(answer.get("corp_finance"))
+        item["added_at"] = datetime.now(timezone.utc).isoformat()  # когда скрипт добавил новость
         item["sources"] = [{"channel": item["channel_title"], "link": item["link"]}]
 
         news.append(item)

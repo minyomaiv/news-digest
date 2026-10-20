@@ -40,12 +40,12 @@
     color: var(--text);
     font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 48px; }
+  .wrap { max-width: 720px; margin: 0 auto; padding-block: 16px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
   header h1 { font-size: 24px; margin: 8px 0 2px; }
   .updated { color: var(--muted); font-size: 13px; }
 
-  .tabs { display: flex; gap: 4px; margin: 14px 0 4px; border-bottom: 1px solid var(--line); }
-  .tabs button {
+  .tabs { display: flex; gap: 4px; overflow-x: auto; margin: 14px 0 4px; border-bottom: 1px solid var(--line); }
+  .tabs button { white-space: nowrap;
     border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 600;
     padding: 8px 10px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
@@ -116,9 +116,8 @@
     <div class="updated" id="updated">Загрузка…</div>
   </header>
 
-  <nav class="tabs">
+  <nav class="tabs" id="tabs">
     <button id="tabNews" class="on">Новости</button>
-    <button id="tabCorp">Финансы компаний</button>
   </nav>
 
   <section id="newsView">
@@ -131,10 +130,10 @@
     <main id="list"></main>
   </section>
 
-  <section id="corpView" hidden>
+  <section id="archiveView" hidden>
     <h2 class="block">Текущий период</h2>
-    <p class="note" id="corpNote"></p>
-    <div id="corpList"></div>
+    <p class="note" id="archiveNote"></p>
+    <div id="archiveList"></div>
     <h2 class="block">Отчёты</h2>
     <div id="reportList"></div>
   </section>
@@ -143,8 +142,8 @@
 <script>
 var allNews = [];
 var topics = {};
-var corp = [];
-var reportsIndex = { start: "", reports: [] };
+var archives = [];       // список архивов из archives.json
+var archiveData = {};    // key -> { items, index } (загружается при открытии вкладки)
 var lastVisit = 0;
 var mode = "new";
 
@@ -199,7 +198,11 @@ function makeCard(item, showTopic) {
   meta.appendChild(document.createTextNode(formatTime(item.date) + " · "));
   if (showTopic) meta.appendChild(el("span", "tag", item.subtopic));
   if (item.region) meta.appendChild(el("span", "tag", item.region));
-  if (item.corp_finance && !showTopic) meta.appendChild(el("span", "tag corp", "Финансы компаний"));
+  if (!showTopic) {
+    for (var a = 0; a < archives.length; a++) {
+      if (item[archives[a].key]) meta.appendChild(el("span", "tag corp", archives[a].title));
+    }
+  }
   var channels = [];
   for (var i = 0; i < item.sources.length; i++) channels.push(item.sources[i].channel);
   meta.appendChild(document.createTextNode(channels.join(", ")));
@@ -286,24 +289,29 @@ function setMode(newMode) {
   renderNews();
 }
 
-// ---------- вкладка «Финансы компаний» ----------
+// ---------- вкладки архивов («Финансы компаний», «Машиностроение», …) ----------
 
-function renderCorp() {
+function renderArchive(archive) {
+  var data = archiveData[archive.key];
+  var items = data.items;
+  var index = data.index;
+
   // начало текущего периода: конец последнего отчёта или начало сбора
-  var periodStart = reportsIndex.start ? reportsIndex.start + "T00:00:00+03:00" : "";
-  var reports = reportsIndex.reports;
+  var periodStart = archive.start + "T00:00:00+03:00";
+  var reports = index.reports;
   if (reports.length > 0) periodStart = reports[reports.length - 1].to;
+  var startTime = new Date(periodStart).getTime();
 
   var current = [];
-  for (var i = 0; i < corp.length; i++) {
-    if (!periodStart || corp[i].date >= new Date(periodStart).toISOString()) current.push(corp[i]);
+  for (var i = 0; i < items.length; i++) {
+    if (new Date(items[i].date).getTime() >= startTime) current.push(items[i]);
   }
   current.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
-  document.getElementById("corpNote").textContent =
-    (periodStart ? "С " + formatDay(periodStart) + " · " : "") + "собрано новостей: " + current.length;
+  document.getElementById("archiveNote").textContent =
+    "С " + formatDay(periodStart) + " · собрано новостей: " + current.length;
 
-  var list = document.getElementById("corpList");
+  var list = document.getElementById("archiveList");
   list.innerHTML = "";
   if (current.length === 0) list.appendChild(el("p", "note", "Пока ничего не собрано."));
   for (var j = 0; j < current.length; j++) list.appendChild(makeCard(current[j], true));
@@ -314,10 +322,11 @@ function renderCorp() {
     reportList.appendChild(el("p", "note", "Первый отчёт придёт 28 ноября."));
     return;
   }
-  for (var r = reports.length - 1; r >= 0; r--) reportList.appendChild(makeReport(reports[r]));
+  for (var r = reports.length - 1; r >= 0; r--) reportList.appendChild(makeReport(archive, reports[r]));
 }
 
-function makeReport(report) {
+function makeReport(archive, report) {
+  var folder = "reports/" + archive.key + "/";
   var box = el("div", "report");
   var row = el("div", "row");
   row.appendChild(el("span", "name", formatDay(report.from) + " – " + formatDay(report.to)));
@@ -336,27 +345,41 @@ function makeReport(report) {
     show.textContent = "Скрыть";
     if (loaded) return;
     items.textContent = "Загрузка…";
-    fetch("reports/" + report.name + ".json?t=" + Date.now())
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        loaded = true;
-        items.textContent = "";
-        data.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-        for (var i = 0; i < data.length; i++) items.appendChild(makeCard(data[i], true));
-      })
-      .catch(function () { items.textContent = "Не удалось загрузить отчёт."; });
+    getJson(folder + report.name + ".json", []).then(function (data) {
+      loaded = true;
+      items.textContent = "";
+      data.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+      for (var i = 0; i < data.length; i++) items.appendChild(makeCard(data[i], true));
+    });
   };
   row.appendChild(show);
 
   var csvLink = el("a", "", "Скачать CSV");
-  csvLink.href = "reports/" + report.name + ".csv";
-  csvLink.setAttribute("download", "finansy_kompaniy_" + report.name + ".csv");
+  csvLink.href = folder + report.name + ".csv";
+  csvLink.setAttribute("download", "otchet_" + archive.key + "_" + report.name + ".csv");
   row.appendChild(csvLink);
 
   box.appendChild(row);
   items.hidden = true;
   box.appendChild(items);
   return box;
+}
+
+function openArchive(archive) {
+  if (archiveData[archive.key]) {
+    renderArchive(archive);
+    return;
+  }
+  document.getElementById("archiveNote").textContent = "Загрузка…";
+  document.getElementById("archiveList").innerHTML = "";
+  document.getElementById("reportList").innerHTML = "";
+  Promise.all([
+    getJson(archive.key + ".json", []),
+    getJson("reports/" + archive.key + "/index.json", { start: archive.start, reports: [] })
+  ]).then(function (results) {
+    archiveData[archive.key] = { items: results[0], index: results[1] };
+    renderArchive(archive);
+  });
 }
 
 // ---------- итог дня ----------
@@ -375,19 +398,37 @@ function renderDaily(daily) {
 
 // ---------- переключение вкладок ----------
 
-function setTab(name) {
-  document.getElementById("tabNews").className = name === "news" ? "on" : "";
-  document.getElementById("tabCorp").className = name === "corp" ? "on" : "";
-  document.getElementById("newsView").hidden = name !== "news";
-  document.getElementById("corpView").hidden = name !== "corp";
+function setTab(key) {
+  var buttons = document.getElementById("tabs").children;
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].className = buttons[i].getAttribute("data-key") === key ? "on" : "";
+  }
+  document.getElementById("newsView").hidden = key !== "news";
+  document.getElementById("archiveView").hidden = key === "news";
+  history.replaceState(null, "", key === "news" ? "#" : "#" + key);
+  for (var j = 0; j < archives.length; j++) {
+    if (archives[j].key === key) openArchive(archives[j]);
+  }
 }
 
-document.getElementById("tabNews").onclick = function () { setTab("news"); history.replaceState(null, "", "#"); };
-document.getElementById("tabCorp").onclick = function () { setTab("corp"); history.replaceState(null, "", "#corp"); };
+function makeTabs() {
+  var nav = document.getElementById("tabs");
+  var newsButton = document.getElementById("tabNews");
+  newsButton.setAttribute("data-key", "news");
+  newsButton.onclick = function () { setTab("news"); };
+  for (var i = 0; i < archives.length; i++) {
+    var button = el("button", "", archives[i].title);
+    button.setAttribute("data-key", archives[i].key);
+    button.onclick = (function (key) {
+      return function () { setTab(key); };
+    })(archives[i].key);
+    nav.appendChild(button);
+  }
+}
+
 document.getElementById("btnNew").onclick = function () { setMode("new"); };
 document.getElementById("btnToday").onclick = function () { setMode("today"); };
 document.getElementById("btnAll").onclick = function () { setMode("all"); };
-if (location.hash === "#corp") setTab("corp");
 
 // ---------- загрузка данных ----------
 
@@ -400,19 +441,28 @@ function getJson(name, fallback) {
 Promise.all([
   getJson("news.json", null),
   getJson("topics.json", {}),
-  getJson("corp_finance.json", []),
-  getJson("reports/index.json", { start: "", reports: [] }),
+  getJson("archives.json", [{ key: "corp_finance", title: "Финансы компаний", start: "2026-10-20" }]),
   getJson("daily.json", [])
 ]).then(function (results) {
-  renderDaily(results[4]);
+  archives = results[2];
+  makeTabs();
+  renderDaily(results[3]);
+
+  // открыть вкладку из ссылки (например, из уведомления с отчётом)
+  var hashKey = location.hash.replace("#", "");
+  if (hashKey === "corp") hashKey = "corp_finance";
+  var startTab = "news";
+  for (var a = 0; a < archives.length; a++) {
+    if (archives[a].key === hashKey) startTab = hashKey;
+  }
+
   if (results[0] === null) {
     document.getElementById("updated").textContent = "Данных пока нет — дождитесь первого запуска.";
+    setTab(startTab);
     return;
   }
   allNews = results[0];
   topics = results[1];
-  corp = results[2];
-  reportsIndex = results[3];
 
   var newest = "";
   for (var i = 0; i < allNews.length; i++) {
@@ -433,7 +483,7 @@ Promise.all([
   if (hasNew) setMode("new");
   else if (hasToday) setMode("today");
   else setMode("all");
-  renderCorp();
+  setTab(startTab);
 
   try { localStorage.setItem("lastVisit", String(Date.now())); } catch (e) {}
 });

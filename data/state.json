@@ -1,7 +1,10 @@
 {
- "news_engineering": 19918,
- "vedomosti": 86828,
+ "news_engineering": 19920,
+ "vedomosti": 86834,
  "kommersant_nn": 19581,
- "anrbc": 19163,
- "kommersant": 117625
+ "anrbc": 19168,
+ "kommersant": 117625,
+ "kommersant18": 14869,
+ "kommersant_volga": 23815,
+ "_last_daily": "2026-10-20"
 }

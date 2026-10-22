@@ -73,6 +73,7 @@
   .note { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
 
   .card {
+    cursor: pointer;
     background: var(--card); border: 1px solid var(--line);
     border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
   }
@@ -144,14 +145,26 @@ var allNews = [];
 var topics = {};
 var archives = [];       // список архивов из archives.json
 var archiveData = {};    // key -> { items, index } (загружается при открытии вкладки)
-var lastVisit = 0;
 var mode = "new";
 
-// время последнего визита (хранится только в этом браузере)
+// прочитанные новости: id -> когда отмечена (хранится только в этом браузере)
+var readIds = {};
 try {
-  lastVisit = Number(localStorage.getItem("lastVisit") || 0);
+  readIds = JSON.parse(localStorage.getItem("readIds") || "{}");
 } catch (e) {
-  lastVisit = 0;
+  readIds = {};
+}
+
+// убираем отметки старше 8 дней — таких новостей уже нет в ленте
+var weekAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+for (var oldId in readIds) {
+  if (readIds[oldId] < weekAgo) delete readIds[oldId];
+}
+
+function markRead(item) {
+  if (readIds[item.id]) return;
+  readIds[item.id] = Date.now();
+  try { localStorage.setItem("readIds", JSON.stringify(readIds)); } catch (e) {}
 }
 
 function el(tag, className, text) {
@@ -171,18 +184,23 @@ function formatDay(iso) {
   return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
 }
 
-// новость «новая», если скрипт добавил её после прошлого захода
-// (у старых новостей без added_at берём время публикации)
-function isNewItem(item) {
-  var added = item.added_at || item.date;
-  return new Date(added).getTime() > lastVisit;
-}
-
-// новость опубликована сегодня (по времени вашего телефона)
+// новость появилась в ленте сегодня (по времени вашего телефона)
+// берём время, когда скрипт её добавил, а у старых новостей — время публикации
 function isTodayItem(item) {
-  var d = new Date(item.date);
+  var d = new Date(item.added_at || item.date);
   var now = new Date();
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+// «Новые» — сегодняшние, на которые вы ещё не нажимали.
+// После полуночи все вчерашние уходят только во «Все за неделю».
+function isNewItem(item) {
+  return isTodayItem(item) && !readIds[item.id];
+}
+
+// «Сегодня» — сегодняшние, которые вы уже открыли
+function isReadTodayItem(item) {
+  return isTodayItem(item) && readIds[item.id];
 }
 
 function makeCard(item, showTopic) {
@@ -190,9 +208,17 @@ function makeCard(item, showTopic) {
   var isNew = isNewItem(item);
 
   var title = el("p", "title");
-  if (isNew) title.appendChild(el("span", "dot", "●"));
+  var dot = el("span", "dot", "●");
+  if (isNew) title.appendChild(dot);
   title.appendChild(document.createTextNode(item.short));
   card.appendChild(title);
+
+  // нажатие на карточку отмечает новость прочитанной: точка пропадает,
+  // а в «Сегодня» она переедет при следующем открытии страницы или смене фильтра
+  card.addEventListener("click", function () {
+    markRead(item);
+    if (dot.parentNode) dot.parentNode.removeChild(dot);
+  });
 
   var meta = el("div", "meta");
   meta.appendChild(document.createTextNode(formatTime(item.date) + " · "));
@@ -242,14 +268,14 @@ function renderNews() {
     var item = allNews[i];
     if (mode === "all") shown.push(item);
     if (mode === "new" && isNewItem(item)) shown.push(item);
-    if (mode === "today" && isTodayItem(item)) shown.push(item);
+    if (mode === "today" && isReadTodayItem(item)) shown.push(item);
   }
   shown.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
   if (shown.length === 0) {
     var emptyText = "Пока пусто.";
     if (mode === "new") emptyText = "Новых новостей нет. Загляните в «Сегодня» или «Все за неделю».";
-    if (mode === "today") emptyText = "Сегодня новостей пока нет.";
+    if (mode === "today") emptyText = "Сегодня вы ещё ничего не открыли. Непрочитанное — в «Новых».";
     list.appendChild(el("p", "empty", emptyText));
     return;
   }
@@ -475,17 +501,15 @@ Promise.all([
   for (var j = 0; j < allNews.length; j++) {
     if (isNewItem(allNews[j])) hasNew = true;
   }
-  // нет новых — показываем «Сегодня», а если и сегодня пусто — всю неделю
+  // нет непрочитанных — показываем «Сегодня», а если и там пусто — всю неделю
   var hasToday = false;
   for (var t = 0; t < allNews.length; t++) {
-    if (isTodayItem(allNews[t])) hasToday = true;
+    if (isReadTodayItem(allNews[t])) hasToday = true;
   }
   if (hasNew) setMode("new");
   else if (hasToday) setMode("today");
   else setMode("all");
   setTab(startTab);
-
-  try { localStorage.setItem("lastVisit", String(Date.now())); } catch (e) {}
 });
 </script>
 </body>

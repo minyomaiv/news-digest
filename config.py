@@ -5,10 +5,10 @@
 # Telegram-каналы: username из ссылки t.me/<username>
 CHANNELS = [
     "vedomosti",          # Ведомости
-    "kommersant",         # Коммерсант
+    "kommersant",         # Коммерсантъ
     "kommersant_nn",      # Коммерсантъ Приволжье
     "kommersant18",       # Коммерсантъ—Удмуртия
-    "kommersant_volga",   # Коммерсантъ Волга
+    "kommersant_volga",   # Коммерсантъ-Волга
     "anrbc",              # AUTONEWS
     "news_engineering",   # MASHNEWS | Новости Промышленности
 ]
@@ -60,9 +60,19 @@ TOPICS = {
     ],
 }
 
-# Модель Gemini. "latest" — псевдоним, который Google сам обновляет на актуальную версию.
-# Если перестанет работать, посмотрите название модели в Google AI Studio.
-MODEL = "gemini-flash-lite-latest"
+# Модели Gemini по порядку: если первая не отвечает (нет в бесплатном тарифе,
+# кончился лимит, модель убрали), скрипт пробует следующую.
+# Актуальные названия моделей можно посмотреть в Google AI Studio.
+MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-lite-latest",
+]
+
+# Сколько старых новостей без сводки переобрабатывать за один запуск
+# (такие бывают, если нейросеть какое-то время не отвечала)
+RETRY_PER_RUN = 300
 
 # Сколько новостей отправлять в нейросеть за один запрос (экономит лимиты)
 BATCH_SIZE = 15

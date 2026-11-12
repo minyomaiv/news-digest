@@ -5,7 +5,7 @@
 # Telegram-каналы: username из ссылки t.me/<username>
 CHANNELS = [
     "vedomosti",          # Ведомости
-    "kommersant"          # Коммерсант
+    "kommersant",         # Коммерсант
     "kommersant_nn",      # Коммерсантъ Приволжье
     "kommersant18",       # Коммерсантъ—Удмуртия
     "kommersant_volga",   # Коммерсантъ Волга

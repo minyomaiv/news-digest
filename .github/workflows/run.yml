@@ -31,7 +31,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Сбор и обработка новостей
+        timeout-minutes: 20
         env:
+          PYTHONUNBUFFERED: "1"   # показывать вывод скрипта сразу, а не в конце
           TG_API_ID: ${{ secrets.TG_API_ID }}
           TG_API_HASH: ${{ secrets.TG_API_HASH }}
           TG_SESSION: ${{ secrets.TG_SESSION }}

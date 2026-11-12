@@ -30,6 +30,7 @@ MSK = timezone(timedelta(hours=3))       # московское время
 # Уведомления не отправляются сразу: они копятся здесь и записываются в файл.
 # Отправит их notify.py — в самом конце, когда сайт уже обновлён.
 PENDING = []
+LAST_AI_ERROR = [""]   # текст последней ошибки нейросети (для уведомления)
 PENDING_FILE = "pending_notifications.json"
 
 
@@ -163,20 +164,23 @@ id, topic, subtopic, region, importance, short, summary, duplicate_of""" + archi
 
 
 def ask_gemini(ai, prompt):
-    for attempt in range(3):
-        try:
-            response = ai.models.generate_content(
-                model=config.MODEL,
-                contents=prompt,
-                config={"response_mime_type": "application/json", "temperature": 0.2},
-            )
-            data = json.loads(response.text)
-            if isinstance(data, list):
-                return data
-            print("Нейросеть вернула не список, повторяю")
-        except Exception as e:
-            print("Ошибка нейросети (попытка", attempt + 1, "):", e)
-        time.sleep(30)
+    # пробуем модели по очереди; каждую — до 2 раз
+    for model in config.MODELS:
+        for attempt in range(2):
+            try:
+                response = ai.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config={"response_mime_type": "application/json", "temperature": 0.2},
+                )
+                data = json.loads(response.text)
+                if isinstance(data, list):
+                    return data
+                print("Модель", model, "вернула не список, повторяю")
+            except Exception as e:
+                LAST_AI_ERROR[0] = model + ": " + str(e)[:300]
+                print("Ошибка нейросети", model, "(попытка", attempt + 1, "):", e)
+            time.sleep(10)
     return []
 
 
@@ -195,12 +199,16 @@ def to_bool(value):
     return False
 
 
-def process_batch(ai, batch, news, by_id, added):
+def process_batch(ai, batch, news, by_id, added, retry=False):
+    # retry=True — переобработка новостей, которые уже лежат в ленте без сводки
     # недавние новости — чтобы нейросеть могла найти дубли
     border = datetime.now(timezone.utc) - timedelta(hours=36)
     recent = []
+    batch_ids = {}
+    for item in batch:
+        batch_ids[item["id"]] = True
     for item in news:
-        if datetime.fromisoformat(item["date"]) >= border:
+        if datetime.fromisoformat(item["date"]) >= border and item["id"] not in batch_ids and item.get("summary"):
             recent.append(item)
 
     answers = {}
@@ -212,14 +220,24 @@ def process_batch(ai, batch, news, by_id, added):
         answer = answers.get(item["id"])
 
         if answer is None:
-            # нейросеть не ответила — сохраняем новость без сводки, чтобы не потерять
+            if retry:
+                item["ai_tries"] = item.get("ai_tries", 1) + 1
+                if item["ai_tries"] >= 4:
+                    item["needs_ai"] = False   # больше не пробуем
+                continue
+            # нейросеть не ответила — сохраняем новость без сводки, чтобы не потерять,
+            # и помечаем: в следующий запуск попробуем ещё раз
             first_line = item["text"].strip().split("\n")[0]
             answer = {"topic": "Другое", "subtopic": "Другое", "region": "",
                       "importance": 1, "short": first_line[:120], "summary": ""}
+            item["needs_ai"] = True
+            item["ai_tries"] = 1
+        else:
+            item["needs_ai"] = False
 
         # дубль: не создаём новую карточку, а добавляем источник к существующей
         dup = answer.get("duplicate_of")
-        if dup and dup in by_id:
+        if dup and dup in by_id and dup != item["id"]:
             target = by_id[dup]
             already = False
             for src in target["sources"]:
@@ -228,6 +246,9 @@ def process_batch(ai, batch, news, by_id, added):
             if not already:
                 target["sources"].append({"channel": item["channel_title"], "link": item["link"]})
             print("Дубль:", item["id"], "->", dup)
+            if retry:
+                news.remove(item)       # дубль убираем из ленты
+                del by_id[item["id"]]
             continue
 
         topic = answer.get("topic")
@@ -246,6 +267,8 @@ def process_batch(ai, batch, news, by_id, added):
         item["summary"] = answer.get("summary") or ""
         for archive in config.ARCHIVES:
             item[archive["key"]] = to_bool(answer.get(archive["key"]))
+        if retry:
+            continue   # новость уже в ленте: время добавления и источники не трогаем
         item["added_at"] = datetime.now(timezone.utc).isoformat()  # когда скрипт добавил новость
         item["sources"] = [{"channel": item["channel_title"], "link": item["link"]}]
 
@@ -303,18 +326,20 @@ def send_notification(added):
 
 def ask_gemini_text(ai, prompt):
     # как ask_gemini, но ответ — обычный текст, а не JSON
-    for attempt in range(3):
-        try:
-            response = ai.models.generate_content(
-                model=config.MODEL,
-                contents=prompt,
-                config={"temperature": 0.3},
-            )
-            if response.text:
-                return response.text.strip()
-        except Exception as e:
-            print("Ошибка нейросети (попытка", attempt + 1, "):", e)
-        time.sleep(30)
+    for model in config.MODELS:
+        for attempt in range(2):
+            try:
+                response = ai.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config={"temperature": 0.3},
+                )
+                if response.text:
+                    return response.text.strip()
+            except Exception as e:
+                LAST_AI_ERROR[0] = model + ": " + str(e)[:300]
+                print("Ошибка нейросети", model, "(попытка", attempt + 1, "):", e)
+            time.sleep(10)
     return ""
 
 
@@ -520,6 +545,38 @@ def main():
         process_batch(ai, batch, news, by_id, added)
         time.sleep(5)  # пауза, чтобы не упереться в лимит запросов в минуту
     print("Добавлено новостей (без дублей):", len(added))
+
+    # 2б. Новости, для которых нейросеть раньше не ответила, — пробуем ещё раз
+    retry_items = []
+    for item in news:
+        if item.get("needs_ai"):
+            retry_items.append(item)
+        elif "needs_ai" not in item and item.get("summary") == "" and item.get("topic") == "Другое":
+            retry_items.append(item)   # такие остались от сбоя до этого исправления
+    retry_items.sort(key=lambda item: item["date"], reverse=True)   # сначала свежие
+    retry_items = retry_items[:config.RETRY_PER_RUN]
+    if len(retry_items) > 0:
+        print("Переобрабатываю новостей без сводки:", len(retry_items))
+    for start in range(0, len(retry_items), config.BATCH_SIZE):
+        batch = retry_items[start:start + config.BATCH_SIZE]
+        process_batch(ai, batch, news, by_id, added, retry=True)
+        time.sleep(5)
+
+    # если нейросеть так и не ответила ни разу — сообщить (не чаще раза в день)
+    failed = 0
+    for item in news:
+        if item.get("needs_ai"):
+            failed = failed + 1
+    if failed > 0 and LAST_AI_ERROR[0]:
+        today = datetime.now(MSK).strftime("%Y-%m-%d")
+        if state.get("_last_ai_alert") != today and os.environ.get("NTFY_TOPIC"):
+            state["_last_ai_alert"] = today
+            PENDING.append({
+                "topic": os.environ.get("NTFY_TOPIC"),
+                "title": "Нейросеть не отвечает",
+                "message": "Новостей без сводки: " + str(failed) + ". Последняя ошибка: " + LAST_AI_ERROR[0],
+                "tags": ["warning"],
+            })
 
     # 3. Удаляем старое и сохраняем
     border = datetime.now(timezone.utc) - timedelta(days=config.DAYS_TO_KEEP)

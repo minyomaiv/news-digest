@@ -7393,5 +7393,29 @@
     "link": "https://t.me/kommersant_volga/24410"
    }
   ]
+ },
+ {
+  "id": "anrbc_19453",
+  "channel": "anrbc",
+  "channel_title": "AUTONEWS",
+  "date": "2026-11-14T14:17:01+00:00",
+  "link": "https://t.me/anrbc/19453",
+  "text": "Мы познакомились с Changan Nevo A06. \n\nКак считаете, заслуженно ли он стал одним из бестселлеров рынка параллельных автомобилей? Пишите в комментариях ⬇️ \n\n🚗 Autonews в Telegram | VK | Канал РБК в «Mакс»",
+  "needs_ai": false,
+  "topic": "Экономика",
+  "subtopic": "Производство и промышленность › Машиностроение",
+  "region": "Россия",
+  "importance": 1,
+  "short": "Автомобильное издание представило обзор модели Changan Nevo A06.",
+  "summary": "Автомобильное издание опубликовало материал о гибридной модели Changan Nevo A06, отметив ее популярность на российском рынке в рамках параллельного импорта.",
+  "corp_finance": false,
+  "machinery": true,
+  "added_at": "2026-11-14T18:52:31.676178+00:00",
+  "sources": [
+   {
+    "channel": "AUTONEWS",
+    "link": "https://t.me/anrbc/19453"
+   }
+  ]
  }
 ]
